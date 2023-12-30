@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <dirent.h>
 #define MAX_FILES 32
 #define MAX_TOTAL_SIZE 200 * 1024 * 1024 // 200 MB
 
@@ -17,57 +18,12 @@ typedef struct {
 } FileInfo;
 
 void create_archive(int argc, char *argv[], char *output_name);
-
 void extract_archive(char *archive_name, char *directory_name);
-
-int isTextFile(const char *filename) { //returns 1 if file is a text, returns 0 if its not
-    FILE *file = fopen(filename, "r");
-    if (file == NULL) {
-        printf("Failed to open %s.\n",filename);
-        exit(1);
-    }
-
-    int is_text = 1; // Assume it's a text file initially
-
-    // Check if the file contains non-printable characters (non-ASCII)
-    int c;
-    while ((c = fgetc(file)) != EOF) {
-        if (c < 0 || c > 127) {
-            is_text = 0; // Not a text file
-            break;
-        }
-    }
-    fclose(file);
-    return is_text;
-}
-
-off_t getFileSize(const char *filename) {
-    struct stat st;
-    if (stat(filename, &st) == 0) {
-        return st.st_size; // Return file size in bytes
-    }
-    printf("Error occurred while getting %s's file size.\n",filename);
-    return -1; // Error occurred while getting file size
-}
-
-int getFilePermissions(const char *filename) {
-    struct stat st;
-    if (stat(filename, &st) == 0) {
-        return st.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO); // Return file permissions // next to stmode would be specific for 3 digit permission
-    }
-    return -1; // Error occurred while getting permissions
-}
-
-void createFile(const char *filename,const char *directory, mode_t permissions){
-    char fullPath[512];
-    snprintf(fullPath, sizeof(fullPath),"%s%s",directory,filename);
-    int fd = open(fullPath, O_CREAT | O_WRONLY,permissions);
-    if(fd == -1){
-    	printf("Failed to create a file for %s.\n",filename);
-    	exit(1);
-    }
-    close(fd);
-}
+void createFile(const char *filename,const char *directory, mode_t permissions);
+int isTextFile(const char *filename);
+int getFilePermissions(const char *filename);
+int isDirectory(const char *path);
+off_t getFileSize(const char *filename);
 
 int main(int argc, char *argv[]) {
     if (argc < 3) {				//Usage check *
@@ -104,14 +60,25 @@ int main(int argc, char *argv[]) {
 		}
 	}
         create_archive(argc, argv, output_name);
-    	} 
-        else if (strcmp(argv[1], "-a") == 0) {
-        char *archive_name = argv[2];
-        char *directory_name = ".";
-        extract_archive(archive_name,directory_name);
+        
+    	} else if (strcmp(argv[1], "-a") == 0) {
+    	//operation to extract archive
+		if(argc < 5 && argc > 2){
+		char *archive_name = argv[2];
+		char *directory_name = ".";
+		   if(isDirectory(argv[3])){
+		   	directory_name = argv[3];
+		   }else{
+		   printf("%s is not a valid directory, extracting to "".""\n",argv[3]);
+		   }
+		extract_archive(archive_name,directory_name);
+		}else{
+		printf("Too much argument, try again.\n");
+		}
 		
+        // Call extract_archive function
     } else {
-        printf("Usage:\n");
+    	printf("Usage:\n");
         printf("To merge files: tarsau -b file1 file2 ... -o output.sau\n");
         printf("To extract: tarsau -a archive.sau output_directory\n");
         exit(1);
@@ -119,7 +86,68 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+int isDirectory(const char *path) {
+    DIR *dir = opendir(path);
+    if (dir != NULL) {
+        closedir(dir);
+        return 1; // It's a directory
+    }
+    return 0; // It's not a directory or couldn't open
+}
+
+void createFile(const char *filename,const char *directory, mode_t permissions){
+    char fullPath[512];
+    snprintf(fullPath, sizeof(fullPath),"%s%s",directory,filename);
+    int fd = open(fullPath, O_CREAT | O_WRONLY,permissions);
+    if(fd == -1){
+    	printf("Failed to create a file for %s.\n",filename);
+    	exit(1);
+    }
+    close(fd);
+}
+
+int getFilePermissions(const char *filename) {
+    struct stat st;
+    if (stat(filename, &st) == 0) {
+        return st.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO); // Return file permissions // next to stmode would be specific for 3 digit permission
+    }
+    return -1; // Error occurred while getting permissions
+}
+
+off_t getFileSize(const char *filename) {
+    struct stat st;
+    if (stat(filename, &st) == 0) {
+        return st.st_size; // Return file size in bytes
+    }
+    printf("Error occurred while getting %s's file size.\n",filename);
+    return -1; // Error occurred while getting file size
+}
+
+int isTextFile(const char *filename) { //returns 1 if file is a text, returns 0 if its not
+    FILE *file = fopen(filename, "r");
+    if (file == NULL) {
+        printf("Failed to open %s.\n",filename);
+        exit(1);
+    }
+
+    int is_text = 1; // Assume it's a text file initially
+
+    // Check if the file contains non-printable characters (non-ASCII)
+    int c;
+    while ((c = fgetc(file)) != EOF) {
+        if (c < 0 || c > 127) {
+            is_text = 0; // Not a text file
+            break;
+        }
+    }
+
+    fclose(file);
+
+    return is_text;
+}
+
 void create_archive(int argc, char *argv[], char *outputName) {
+    // Parse command-line arguments to get input file names
     char *input_files[MAX_FILES];
     int num_files = 0;
     int i;
@@ -166,11 +194,11 @@ void create_archive(int argc, char *argv[], char *outputName) {
 	}
 	fclose(inputFile);
 	fseek(file,0,SEEK_END);
+	
     }
     fprintf(file,"\n");
     fclose(file);
 }
-
 void printFileInfo(const FileInfo *files, int num_files) {
     printf("Files Information:\n");
     for (int i = 0; i < num_files; ++i) {
@@ -181,12 +209,13 @@ void printFileInfo(const FileInfo *files, int num_files) {
         printf("\n");
     }
 }
-
 void create_files(FileInfo *files, int num_files, const char *directory_name) {
     char filepath[256]; // Adjust the size according to your requirements
+
     for (int i = 0; i < num_files; ++i) {
-        
-        snprintf(filepath, sizeof(filepath), "%s/%s", directory_name, files[i].name); // Construct the file path with the directory name
+        // Construct the file path with the directory name
+        snprintf(filepath, sizeof(filepath), "%s/%s", directory_name, files[i].name);
+
         FILE *file = fopen(filepath, "w");
         if (file == NULL) {
             fprintf(stderr, "Failed to create file: %s\n", filepath);
@@ -194,6 +223,7 @@ void create_files(FileInfo *files, int num_files, const char *directory_name) {
         }
         // Write content to the file
         fwrite(files[i].content, sizeof(char), strlen(files[i].content), file);
+
         fclose(file);
     }
 }
@@ -219,12 +249,13 @@ void extract_archive(char *archive_name, char *directory_name) {
         fclose(file);
         exit(1);
     }
-    fseek(file,10,SEEK_SET); //reading section
+    //reading section
+    fseek(file,10,SEEK_SET);
     char buff[archiveSize + 1 -10];
     size_t sectionLength = archiveSize -10;
     size_t bytes_read = fread(buff,sizeof(char),sectionLength,file);
     buff[bytes_read] = '\0'; //null terminate
-	
+    //printf("%s\n",buff);
     if (buff != NULL && num_files < MAX_FILES) {
         char *token = strtok(buff, "!|");
         while(token !=NULL){
@@ -242,7 +273,8 @@ void extract_archive(char *archive_name, char *directory_name) {
         files[i].content = malloc(files[i].size + 1); // Allocate memory
         if (files[i].content != NULL) {
             if (fgets(files[i].content, files[i].size + 1, file) != NULL) {
-                size_t len = strlen(files[i].content);// Remove newline character if present
+                // Remove newline character if present
+                size_t len = strlen(files[i].content);
                 if (len > 0 && files[i].content[len - 1] == '\n') {
                     files[i].content[len - 1] = '\0';
                 }
@@ -258,4 +290,5 @@ void extract_archive(char *archive_name, char *directory_name) {
     }
     create_files(files,num_files,directory_name);   
     fclose(file);
+
 }
